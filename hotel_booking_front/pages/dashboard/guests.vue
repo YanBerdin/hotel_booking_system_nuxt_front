@@ -95,7 +95,7 @@
                                         <div class="m-3">{{ guest.roomNo }}</div>
                                     </div>
                                     <div class="table-cell">
-                                        <div class="m-3">{{ guest.status }}</div>
+                                        <div class="m-3">{{ guest.statusfield }}</div>
                                     </div>
                                     <div class="table-cell">
                                         <div class="m-3">{{ guest.paid }}</div>
@@ -107,7 +107,7 @@
                                         <div class="m-3">{{ guest.leaveDate }}</div>
                                     </div>
                                     <div>
-                                        <button v-if="guest.status === 'active'" @click="checkOut(guest)" class="p-2 m-3 bg-green-500">
+                                        <button v-if="guest.statusfield === 'confirmed'" @click="checkOut(guest)" class="p-2 m-3 bg-green-500">
                                             check-out
                                         </button>
                                     </div>

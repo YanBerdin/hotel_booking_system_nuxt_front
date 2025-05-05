@@ -71,8 +71,8 @@ const availableRooms = computed(() => roomsStore.rooms.filter(el => !el.occupied
 
 // Méthodes
 const newGuest = async () => {
-    if (!fullname.value || !roomNo.value || !checkIn.value || !leaveDate.value || !email.value) {
-        alert('Veuillez remplir tous les champs')
+    if (!fullname.value || !roomNo.value || !checkIn.value || !leaveDate.value) {
+        alert('Veuillez remplir tous les champs obligatoires')
         return
     }
 
@@ -85,9 +85,9 @@ const newGuest = async () => {
             checkIn: checkIn.value,
             leaveDate: leaveDate.value,
             roomNo: parseInt(roomNo.value),
-            status: 'active',
-            paid: true,
-            email: email.value
+            statusfield: 'confirmed',
+            paid: true
+            // Le champ email a été supprimé car il n'est pas reconnu par l'API
         }
         
         // Ajout de l'invité à la base de données
@@ -99,10 +99,12 @@ const newGuest = async () => {
         // Réinitialisation du formulaire
         resetForm()
         
-        // Émission d'un événement pour informer le composant parent que l'invité a été ajouté
-        emit('guest-added')
+        // Notification au composant parent
+        emit('guest-added', newGuest)
+        
     } catch (error) {
         console.error('Erreur lors de l\'ajout d\'un invité:', error)
+        alert('Une erreur est survenue lors de l\'ajout de l\'invité. Veuillez réessayer.')
     } finally {
         loading.value = false
     }

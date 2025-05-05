@@ -1,44 +1,5 @@
 import { defineStore } from 'pinia'
-
-// Définition des interfaces pour typer correctement les données
-export interface Guest {
-  id: number;
-  fullname: string;
-  email: string;
-  checkIn: string;
-  leaveDate: string;
-  roomNo: number;
-  status: 'active' | 'checked-out';
-  paid: boolean;
-  [key: string]: any; // Pour permettre d'autres propriétés
-}
-
-// Interface qui correspond à la structure de données retournée par Strapi
-interface StrapiGuest {
-  id: number;
-  attributes: {
-    fullname: string;
-    email: string;
-    checkIn: string;
-    leaveDate: string;
-    roomNo: number;
-    status: 'active' | 'checked-out';
-    paid: boolean;
-    [key: string]: any;
-  }
-}
-
-// Interface pour la réponse Strapi
-interface StrapiResponse<T> {
-  data: T;
-  meta?: unknown;
-}
-
-// Interface pour la réponse Strapi avec plusieurs éléments
-interface StrapiCollectionResponse<T> {
-  data: T[];
-  meta?: unknown;
-}
+import type { Guest, StrapiGuest, StrapiResponse, StrapiCollectionResponse } from '~/types/guest'
 
 export const useGuestsStore = defineStore('guests', {
   state: () => ({
@@ -120,39 +81,76 @@ export const useGuestsStore = defineStore('guests', {
       try {
         // Obtenir les en-têtes d'autorisation avec le token JWT
         const headers = await this.getAuthHeader();
+        console.log('Headers d\'autorisation:', headers);
         
-        // Ajout d'un invité avec le token d'authentification
-        const { data, error } = await useFetch<StrapiResponse<StrapiGuest>>(`${useRuntimeConfig().public.strapiUrl}/api/guests`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...headers
-          },
-          body: JSON.stringify({ data: guest })
-        });
+        // S'assurer que toutes les propriétés sont du bon type avant l'envoi
+        const guestData = {
+          ...guest,
+          roomNo: typeof guest.roomNo === 'string' ? parseInt(guest.roomNo as string) : guest.roomNo,
+          paid: guest.paid === undefined ? true : guest.paid,
+          statusfield: guest.statusfield || 'confirmed'
+        };
         
-        if (error.value) {
-          throw new Error(`Erreur API: ${error.value.message}`);
+        console.log('Données de l\'invité à envoyer:', guestData);
+        console.log('Payload complet:', JSON.stringify({ data: guestData }));
+        
+        // Utiliser $fetch au lieu de useFetch comme recommandé par Nuxt
+        try {
+          // Étape 1: Créer l'invité
+          const responseData = await $fetch<StrapiResponse<StrapiGuest>>(`${useRuntimeConfig().public.strapiUrl}/api/guests`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...headers
+            },
+            body: { data: guestData }
+          });
+          
+          console.log('Réponse complète du serveur:', responseData);
+          
+          // Étape 2: Publier immédiatement l'invité pour éviter la duplication
+          if (responseData.data && responseData.data.id) {
+            try {
+              await $fetch(`${useRuntimeConfig().public.strapiUrl}/api/guests/${responseData.data.id}/actions/publish`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  ...headers
+                }
+              });
+              console.log('Invité publié avec succès');
+            } catch (publishError) {
+              console.warn('Impossible de publier l\'invité automatiquement:', publishError);
+              // On continue même si la publication échoue
+            }
+          }
+          
+          // Si succès, traiter la réponse
+          const strapiData = responseData.data;
+          const { id, ...otherAttributes } = strapiData.attributes || {};
+          
+          const newGuest = {
+            id: strapiData.id,
+            ...otherAttributes
+          } as Guest;
+          
+          this.guests.push(newGuest);
+          console.log('Nouvel invité ajouté au store:', newGuest);
+          return newGuest;
+          
+        } catch (fetchError: any) {
+          console.error('Erreur détaillée:', fetchError);
+          
+          // Afficher les détails de l'erreur s'ils sont disponibles
+          if (fetchError.response) {
+            console.error("Réponse d'erreur:", fetchError.response._data || fetchError.response);
+          }
+          
+          throw new Error(`Erreur API: ${fetchError.message || 'Erreur inconnue lors de l\'ajout d\'un invité'}`);
         }
-        
-        if (!data.value) {
-          throw new Error('Pas de données retournées par l\'API');
-        }
-        
-        // Conversion de la réponse Strapi vers notre format Guest
-        const strapiData = data.value.data;
-        const { id, ...otherAttributes } = strapiData.attributes || {};
-        
-        const newGuest = {
-          id: strapiData.id, // On utilise uniquement l'id de la racine
-          ...otherAttributes
-        } as Guest;
-        
-        this.guests.push(newGuest)
-        return newGuest
       } catch (error) {
-        console.error('Erreur lors de l\'ajout d\'un invité:', error)
-        throw error
+        console.error('Erreur lors de l\'ajout d\'un invité:', error);
+        throw error;
       }
     },
     
@@ -201,7 +199,7 @@ export const useGuestsStore = defineStore('guests', {
     
     async checkOutGuest(guest: Guest) {
       return await this.updateGuest(guest.id, {
-        status: 'checked-out'
+        statusfield: 'checked-out' // Corrigé de 'inactive' à 'checked-out' pour correspondre à l'interface
       })
     }
   }
