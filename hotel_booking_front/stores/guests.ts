@@ -49,9 +49,34 @@ export const useGuestsStore = defineStore('guests', {
   },
   actions: {
     // Fonction utilitaire pour obtenir l'en-tête d'autorisation
-    getAuthHeader() {
+    async getAuthHeader() {
+      // Obtenir le token de l'API Strapi
       const config = useRuntimeConfig();
       const token = config.public.strapiToken || '';
+      
+      try {
+        // Essayer d'obtenir la session utilisateur si disponible
+        const { status, data } = useAuth();
+        
+        if (status.value === 'authenticated' && data.value) {
+          // Accéder au JWT de manière sécurisée en utilisant as any pour éviter les erreurs TypeScript
+          const sessionData = data.value as any;
+          const jwtToken = sessionData?.jwt || 
+                          sessionData?.token?.jwt ||
+                          sessionData?.user?.jwt || 
+                          '';
+          
+          if (jwtToken) {
+            return {
+              Authorization: `Bearer ${jwtToken}`
+            };
+          }
+        }
+      } catch (error) {
+        console.error('Erreur lors de la récupération de la session :', error);
+      }
+      
+      // Fallback sur le token API
       return {
         Authorization: `Bearer ${token}`
       };
@@ -59,9 +84,12 @@ export const useGuestsStore = defineStore('guests', {
     
     async fetchGuests() {
       try {
-        // Récupération des invités avec le token d'API
+        // Obtenir les en-têtes d'autorisation avec le token JWT
+        const headers = await this.getAuthHeader();
+        
+        // Récupération des invités avec le token d'authentification
         const { data, error } = await useFetch<StrapiCollectionResponse<StrapiGuest>>(`${useRuntimeConfig().public.strapiUrl}/api/guests`, {
-          headers: this.getAuthHeader()
+          headers
         });
         
         if (error.value) {
@@ -90,12 +118,15 @@ export const useGuestsStore = defineStore('guests', {
     
     async addGuest(guest: Partial<Guest>) {
       try {
-        // Ajout d'un invité avec le token d'API
+        // Obtenir les en-têtes d'autorisation avec le token JWT
+        const headers = await this.getAuthHeader();
+        
+        // Ajout d'un invité avec le token d'authentification
         const { data, error } = await useFetch<StrapiResponse<StrapiGuest>>(`${useRuntimeConfig().public.strapiUrl}/api/guests`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            ...this.getAuthHeader()
+            ...headers
           },
           body: JSON.stringify({ data: guest })
         });
@@ -125,16 +156,19 @@ export const useGuestsStore = defineStore('guests', {
       }
     },
     
-    async updateGuest(id: number, data: Partial<Guest>) {
+    async updateGuest(id: number, guestData: Partial<Guest>) {
       try {
-        // Mise à jour d'un invité avec le token d'API
+        // Obtenir les en-têtes d'autorisation avec le token JWT
+        const headers = await this.getAuthHeader();
+        
+        // Mise à jour d'un invité avec le token d'authentification
         const { data: responseData, error } = await useFetch<StrapiResponse<StrapiGuest>>(`${useRuntimeConfig().public.strapiUrl}/api/guests/${id}`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
-            ...this.getAuthHeader()
+            ...headers
           },
-          body: JSON.stringify({ data })
+          body: JSON.stringify({ data: guestData })
         });
         
         if (error.value) {

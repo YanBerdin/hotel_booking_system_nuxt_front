@@ -1,40 +1,32 @@
 import { defineStore } from 'pinia'
 import type { Guest } from './guests'
 
-// Définition d'une interface pour les chambres
+// Définition d'une interface pour les chambres adaptée à la structure réelle de l'API
 export interface Room {
   id: number;
-  roomNo: number;
-  occupied: boolean;
-  guest: Guest | null;
+  documentId: string;
   type: string;
-  price: number;
-  [key: string]: any; // Pour permettre d'autres propriétés
+  occupied: boolean | null;
+  roomNo: number;
+  beds: number;
+  createdAt: string;
+  updatedAt: string;
+  publishedAt: string;
+  guest?: Guest | null;
+  price?: number;
 }
 
-// Interface qui correspond à la structure de données retournée par Strapi
-interface StrapiRoom {
-  id: number;
-  attributes: {
-    roomNo: number;
-    occupied: boolean;
-    guest: Guest | null;
-    type: string;
-    price: number;
-    [key: string]: any;
-  }
-}
-
-// Interface pour la réponse Strapi
-interface StrapiResponse<T> {
-  data: T;
-  meta?: unknown;
-}
-
-// Interface pour la réponse Strapi avec plusieurs éléments
-interface StrapiCollectionResponse<T> {
-  data: T[];
-  meta?: unknown;
+// Interface pour la réponse Strapi adaptée à votre API
+interface StrapiResponse {
+  data: Room[];
+  meta: {
+    pagination: {
+      page: number;
+      pageSize: number;
+      pageCount: number;
+      total: number;
+    }
+  };
 }
 
 export const useRoomsStore = defineStore('rooms', {
@@ -47,9 +39,37 @@ export const useRoomsStore = defineStore('rooms', {
   },
   actions: {
     // Fonction utilitaire pour obtenir l'en-tête d'autorisation
-    getAuthHeader() {
+    async getAuthHeader() {
+      // Obtenir le token de l'API Strapi
       const config = useRuntimeConfig();
       const token = config.public.strapiToken || '';
+      
+      try {
+        // Essayer d'obtenir la session utilisateur si disponible
+        const { status, data } = useAuth();
+        
+        if (status.value === 'authenticated' && data.value) {
+          // Log de la session pour debug
+          console.log('Session data:', data.value);
+          
+          // Accéder au JWT de manière sécurisée en utilisant as any pour éviter les erreurs TypeScript
+          const sessionData = data.value as any;
+          const jwtToken = sessionData?.jwt || 
+                          sessionData?.token?.jwt ||
+                          sessionData?.user?.jwt || 
+                          '';
+          
+          if (jwtToken) {
+            return {
+              Authorization: `Bearer ${jwtToken}`
+            };
+          }
+        }
+      } catch (error) {
+        console.error('Erreur lors de la récupération de la session :', error);
+      }
+      
+      // Fallback sur le token API
       return {
         Authorization: `Bearer ${token}`
       };
@@ -57,9 +77,12 @@ export const useRoomsStore = defineStore('rooms', {
     
     async fetchRooms() {
       try {
-        // Récupération des chambres avec le token d'API
-        const { data, error } = await useFetch<StrapiCollectionResponse<StrapiRoom>>(`${useRuntimeConfig().public.strapiUrl}/api/rooms`, {
-          headers: this.getAuthHeader()
+        // Obtenir les en-têtes d'autorisation avec le token JWT
+        const headers = await this.getAuthHeader();
+        
+        // Récupération des chambres avec le token d'authentification
+        const { data, error } = await useFetch<StrapiResponse>(`${useRuntimeConfig().public.strapiUrl}/api/rooms`, {
+          headers
         });
         
         if (error.value) {
@@ -71,16 +94,18 @@ export const useRoomsStore = defineStore('rooms', {
           return;
         }
         
-        // Conversion des données de la réponse Strapi vers notre format Room
-        this.rooms = (data.value.data || []).map((item) => {
-          // On extrait les attributs sans inclure id s'il existe dans attributes
-          const { id, ...otherAttributes } = item.attributes || {};
-          
-          return {
-            id: item.id, // On utilise uniquement l'id de la racine
-            ...otherAttributes
-          } as Room;
+        // La structure de l'API est déjà adaptée, pas besoin de transformation complexe
+        this.rooms = data.value.data;
+        
+        // Ajout de prix par défaut si non défini (pour la compatibilité avec le code existant)
+        this.rooms.forEach(room => {
+          if (room.price === undefined) {
+            // Prix par défaut basé sur le type de chambre
+            room.price = room.type === 'vip' ? 200 : 100;
+          }
         });
+        
+        console.log("Chambres chargées:", this.rooms);
       } catch (error) {
         console.error('Erreur lors de la récupération des chambres:', error)
       }
@@ -88,14 +113,17 @@ export const useRoomsStore = defineStore('rooms', {
     
     async updateRoom(id: number, roomData: Partial<Room>) {
       try {
-        // Mise à jour d'une chambre avec le token d'API
-        const { data, error } = await useFetch<StrapiResponse<StrapiRoom>>(`${useRuntimeConfig().public.strapiUrl}/api/rooms/${id}`, {
+        // Obtenir les en-têtes d'autorisation avec le token JWT
+        const headers = await this.getAuthHeader();
+        
+        // Mise à jour d'une chambre avec le token d'authentification
+        const { data, error } = await useFetch<{data: Room}>(`${useRuntimeConfig().public.strapiUrl}/api/rooms/${id}`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
-            ...this.getAuthHeader()
+            ...headers
           },
-          body: JSON.stringify({ data: roomData })
+          body: JSON.stringify(roomData)
         });
         
         if (error.value) {
@@ -106,14 +134,7 @@ export const useRoomsStore = defineStore('rooms', {
           throw new Error('Pas de données retournées par l\'API');
         }
         
-        // Conversion de la réponse Strapi vers notre format Room
-        const strapiData = data.value.data;
-        const { id: attributeId, ...otherAttributes } = strapiData.attributes || {};
-        
-        const updatedRoom = {
-          id: strapiData.id, // On utilise uniquement l'id de la racine
-          ...otherAttributes
-        } as Room;
+        const updatedRoom = data.value.data;
         
         const index = this.rooms.findIndex(r => r.id === id)
         if (index !== -1) {
